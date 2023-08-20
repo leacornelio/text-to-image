@@ -1,0 +1,10 @@
+torchmetrics
+django
+torch
+easydict
+nltk
+scikit-image
+torchvision
+pandas
+pyyaml
+torch-fidelity

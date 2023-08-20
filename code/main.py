@@ -8,7 +8,8 @@ from datasets import prepare_data
 #for flower dataset, please use the fllowing dataset files
 #from datasets_flower import TextDataset
 #from datasets_flower import prepare_data
-from DAMSM import RNN_ENCODER,CustomLSTM
+from DAMSM import RNN_ENCODER, CustomLSTM
+from torchmetrics.image.fid import FrechetInceptionDistance
 
 import os
 import sys
@@ -37,27 +38,27 @@ import multiprocessing
 multiprocessing.set_start_method('spawn', True)
 
 UPDATE_INTERVAL = 200
+
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a DAMSM network')
     parser.add_argument('--cfg', dest='cfg_file',
                         help='optional config file',
                         default='cfg/bird.yml', type=str)
-    parser.add_argument('--gpu', dest='gpu_id', type=int, default=0)
+    parser.add_argument('--gpu', dest='gpu_id', type=int, default=-1)
     parser.add_argument('--data_dir', dest='data_dir', type=str, default='')
     parser.add_argument('--manualSeed', type=int, help='manual seed')
     args = parser.parse_args()
     return args
 
-
 def sampling(text_encoder, netG, dataloader,device):
-    
+    fid = FrechetInceptionDistance(feature=64)
     model_dir = cfg.TRAIN.NET_G
     split_dir = 'valid'
     # Build and load the generator
     # for coco wrap netG with DataParallel because it's trained on two 3090
     #    netG = nn.DataParallel(netG).cuda()
-    netG.load_state_dict(torch.load('../models/%s/netG_500.pth'%(cfg.CONFIG_NAME)))
-    
+    netG.load_state_dict(torch.load('../models/netG_1.pth', map_location=torch.device('cpu')))
+    print(f'Parameters: {sum(p.numel() for p in netG.parameters())}')
     netG.eval()
 
     batch_size = cfg.TRAIN.BATCH_SIZE
@@ -65,14 +66,15 @@ def sampling(text_encoder, netG, dataloader,device):
     save_dir = '%s/%s' % (s_tmp, split_dir)
     mkdir_p(save_dir)
     cnt = 0
-    for i in range(10):  # (cfg.TEXT.CAPTIONS_PER_IMAGE):
+
+    for i in range(cfg.TEXT.CAPTIONS_PER_IMAGE):
         for step, data in enumerate(dataloader, 0):
             imags, captions, cap_lens, class_ids, keys = prepare_data(data)
             cnt += batch_size
             if step % 100 == 0:
                 print('step: ', step)
-            # if step > 50:
-            #     break
+            if step > 50: # One pass for all classes
+                break
             hidden = text_encoder.init_hidden(batch_size)
             # words_embs: batch_size x nef x seq_len
             # sent_emb: batch_size x nef
@@ -86,7 +88,7 @@ def sampling(text_encoder, netG, dataloader,device):
                 noise=noise.to(device)
                 netG.lstm.init_hidden(noise)
                 
-                fake_imgs = netG(noise,sent_emb)
+                fake_imgs = netG(noise, sent_emb)
             for j in range(batch_size):
                 s_tmp = '%s/single/%s' % (save_dir, keys[j])
                 folder = s_tmp[:s_tmp.rfind('/')]
@@ -99,16 +101,18 @@ def sampling(text_encoder, netG, dataloader,device):
                 im = im.astype(np.uint8)
                 im = np.transpose(im, (1, 2, 0))
                 im = Image.fromarray(im)
-                fullpath = '%s_%3d.png' % (s_tmp,i)
+                fullpath = '%s_%3d.png' % (s_tmp, i)
                 im.save(fullpath)
+                fid.update(imags[0][j].unsqueeze(0).to(torch.uint8), real=True)
+                fid.update(fake_imgs[j].unsqueeze(0).to(torch.uint8), real=False)
+        fid_score = fid.compute().item()
+        print(f"FID: {fid_score}")
 
-
-
-def train(dataloader,netG,netD,text_encoder,optimizerG,optimizerD,state_epoch,batch_size,device):
+def train(dataloader, netG, netD, text_encoder, optimizerG, optimizerD, state_epoch, batch_size, device):
     mkdir_p('../models/%s' % (cfg.CONFIG_NAME))
   
     for epoch in range(state_epoch+1, cfg.TRAIN.MAX_EPOCH+1):
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
         
         for step, data in enumerate(dataloader, 0):
             #torch.cuda.empty_cache()
@@ -155,7 +159,7 @@ def train(dataloader,netG,netD,text_encoder,optimizerG,optimizerD,state_epoch,ba
             out = netD.COND_DNET(features,sent_inter)
             grads = torch.autograd.grad(outputs=out,
                                     inputs=(interpolated,sent_inter),
-                                    grad_outputs=torch.ones(out.size()).cuda(),
+                                    grad_outputs=torch.ones(out.size()), # .cuda(),
                                     retain_graph=True,
                                     create_graph=True,
                                     only_inputs=True)
@@ -181,19 +185,17 @@ def train(dataloader,netG,netD,text_encoder,optimizerG,optimizerD,state_epoch,ba
 
             print('[%d/%d][%d/%d] Loss_D: %.3f Loss_G %.3f'
                 % (epoch, cfg.TRAIN.MAX_EPOCH, step, len(dataloader), errD.item(), errG.item()))
+            break # 1 epoch and time step for sample fine-tuning
 
         vutils.save_image(fake.data,
                         '%s/fake_samples_epoch_%03d.png' % ('../imgs', epoch),
                         normalize=True)
 
         if epoch%10==0:
-            torch.save(netG.state_dict(), '../models/%s/netG_%03d.pth' % (cfg.CONFIG_NAME, epoch))
-            torch.save(netD.state_dict(), '../models/%s/netD_%03d.pth' % (cfg.CONFIG_NAME, epoch))       
+            torch.save(netG.state_dict(), f'../models/netG_{epoch}.pth')
+            torch.save(netD.state_dict(), f'../models/netD_{epoch}.pth')       
 
-    return count
-
-
-
+    return 0
 
 if __name__ == "__main__":
     args = parse_args()
@@ -228,7 +230,7 @@ if __name__ == "__main__":
     output_dir = '../output/%s_%s_%s' % \
         (cfg.DATASET_NAME, cfg.CONFIG_NAME, timestamp)
 
-    torch.cuda.set_device(cfg.GPU_ID)
+    # torch.cuda.set_device(cfg.GPU_ID)
     cudnn.benchmark = True
 
     # Get data loader ##################################################
@@ -262,31 +264,26 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     lstm = CustomLSTM(256, 256)
 
-    netG = NetG(cfg.TRAIN.NF, 100,lstm).to(device)
+    netG = NetG(cfg.TRAIN.NF, 100, lstm).to(device)
     netD = NetD(cfg.TRAIN.NF).to(device)
 
     text_encoder = RNN_ENCODER(dataset.n_words, nhidden=cfg.TEXT.EMBEDDING_DIM)
     state_dict = torch.load(cfg.TEXT.DAMSM_NAME, map_location=lambda storage, loc: storage)
     text_encoder.load_state_dict(state_dict)
-    text_encoder.cuda()
+    text_encoder # .cuda()
 
     for p in text_encoder.parameters():
         p.requires_grad = False
     text_encoder.eval()    
 
-    state_epoch=0
+    state_epoch = 0
 
     optimizerG = torch.optim.Adam(netG.parameters(), lr=0.0001, betas=(0.0, 0.9))
     optimizerD = torch.optim.Adam(netD.parameters(), lr=0.0004, betas=(0.0, 0.9))  
-
 
     if cfg.B_VALIDATION:
         count = sampling(text_encoder, netG, dataloader,device)  # generate images for the whole valid dataset
         print('state_epoch:  %d'%(state_epoch))
     else:
-        
-        count = train(dataloader,netG,netD,text_encoder,optimizerG,optimizerD, state_epoch,batch_size,device)
-
-
-
-        
+        netG.load_state_dict(torch.load('../models/NETG_500.pth', map_location=torch.device('cpu')))
+        count = train(dataloader, netG, netD, text_encoder, optimizerG, optimizerD, state_epoch, batch_size, device)

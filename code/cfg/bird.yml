@@ -1,13 +1,13 @@
 CONFIG_NAME: 'bird_lstm_4aff_2'
 
 DATASET_NAME: 'birds'
-DATA_DIR: '/home/yesenmao/disk/dataset/birds/'
+DATA_DIR: '../data/birds/'
 
 GPU_ID: 0
 WORKERS: 1
 
 
-B_VALIDATION: False # True  # False
+B_VALIDATION: True
 loss: 'hinge'
 
 TREE:
@@ -17,12 +17,12 @@ TREE:
 
 TRAIN:
     NF: 64 # default 64
-    BATCH_SIZE: 24
-    MAX_EPOCH: 601
+    BATCH_SIZE: 2
+    MAX_EPOCH: 1
     NET_G: '../test'
 
 
 TEXT:
     EMBEDDING_DIM: 256
-    CAPTIONS_PER_IMAGE: 10
+    CAPTIONS_PER_IMAGE: 1
     DAMSM_NAME: '../bird/text_encoder200.pth'
