@@ -23,8 +23,6 @@ cd code/
 1. Download the preprocessed metadata for [birds](https://drive.google.com/open?id=1O_LtUP9sch09QH3s_EBAgLEctBQ5JBSJ) and save them to `data/`
 2. Download the [birds](http://www.vision.caltech.edu/visipedia/CUB-200-2011.html) image data. Extract them to `data/birds/`. Raw text data of CUB dataset is avaiable [here](https://drive.google.com/file/d/1KyTQVo67izP4NEAAZBRnqrGG3yRh3azD/view?usp=sharing)
 
-The captions are pre-processed by loading them and splitting them into tokens. A dictionary is built as a reference to extract the corresponding indices of each token. The transformed tokens are passed to the text encoder to obtain the embdeddings.
-
 ---
 ### Training
 Set B_Validation in cfg/bird.yml to False
@@ -33,7 +31,8 @@ Set B_Validation in cfg/bird.yml to False
 Number of parameters: 38091658
 
 ### Evaluating
-Set B_Validation in cfg/bird.yml to True
+1. Download the trained model [here](https://drive.google.com/drive/folders/1dHOtXmp5kKZDLq6b3Qqs74NDu6cFcQTa?usp=sharing) and save to `models/`.
+2. Set B_Validation in cfg/bird.yml to True.
   - `python main.py --cfg cfg/bird.yml`
 
 Metrics is calculated using the Frechet Inception Distance (FID) module of torchmetrics. Sample fine-tuning of the [pre-trained model](https://drive.google.com/file/d/1Np4odfdNkgRursGeKmwVix3zLhiZfZUa/view?usp=sharing) is done for 1 epoch and 1 step.
