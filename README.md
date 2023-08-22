@@ -35,7 +35,7 @@ Number of parameters: 38091658
 2. Set B_Validation in cfg/bird.yml to True.
   - `python main.py --cfg cfg/bird.yml`
 
-Metrics is calculated using the Frechet Inception Distance (FID) module of torchmetrics. The [pre-trained model](https://drive.google.com/file/d/1Np4odfdNkgRursGeKmwVix3zLhiZfZUa/view?usp=sharing) is trained for an additional 1 epoch and 1 step for demo purposes.
+Metrics is calculated using the Frechet Inception Distance (FID) module of torchmetrics. FID is a metric used for evaluating the realism and diversity of the images created by generative adversarial networks. It measures the feature distance between a real and generated image. The [pre-trained model](https://drive.google.com/file/d/1Np4odfdNkgRursGeKmwVix3zLhiZfZUa/view?usp=sharing) is trained for an additional 1 epoch and 1 step for demo purposes.
 ```
 FID: 1.28
 ```
