@@ -5,6 +5,8 @@ from collections import defaultdict
 from image_generator.DAMSM import RNN_ENCODER,CustomLSTM
 from torchmetrics.image.fid import FrechetInceptionDistance
 from torch.autograd import Variable
+from image_generator.datasets import TextDataset
+from image_generator.miscc.config import cfg
 
 import os
 import sys
@@ -40,65 +42,53 @@ def run_inference(caption):
     state_dict = torch.load('../bird/text_encoder200.pth', map_location=torch.device('cpu'))
     text_encoder.load_state_dict(state_dict)
 
-    # Prepare caption
-    # caption = 'a red warbler'
-    cap = caption.replace("\ufffd\ufffd", " ")
-    # picks out sequences of alphanumeric characters as tokens
-    # and drops everything else
-    tokenizer = RegexpTokenizer(r'\w+')
-    tokens = tokenizer.tokenize(cap.lower())
-    tokens_new = []
-    for t in tokens:
-        t = t.encode('ascii', 'ignore').decode('ascii')
-        if len(t) > 0:
-            tokens_new.append(t)   
-    all_captions = [tokens_new]
+    dataset = TextDataset('../data/birds', 'test',
+                                base_size=cfg.TREE.BASE_SIZE)
+    wordtoix = dataset.wordtoix
+    sentences = caption.split(',')[:1] # one caption per image
 
-    # Build dictionary
-    word_counts = defaultdict(float)
-    for sent in all_captions:
-        for word in sent:
-            word_counts[word] += 1
+    # a list of indices for a sentence
+    captions = []
+    cap_lens = []
+    for sent in sentences:
+        if len(sent) == 0:
+            continue
+        sent = sent.replace("\ufffd\ufffd", " ")
+        tokenizer = RegexpTokenizer(r'\w+')
+        tokens = tokenizer.tokenize(sent.lower())
+        if len(tokens) == 0:
+            print('sent', sent)
+            continue
 
-    vocab = [w for w in word_counts if word_counts[w] >= 0]
-
-    ixtoword = {}
-    ixtoword[0] = '<end>'
-    wordtoix = {}
-    wordtoix['<end>'] = 0
-    ix = 1
-    for w in vocab:
-        wordtoix[w] = ix
-        ixtoword[ix] = w
-        ix += 1
-
-    captions_new = []
-    for t in all_captions:
         rev = []
-        for w in t:
-            if w in wordtoix:
-                rev.append(wordtoix[w])
-        captions_new.append(rev)
+        for t in tokens:
+            t = t.encode('ascii', 'ignore').decode('ascii')
+            if len(t) > 0 and t in wordtoix:
+                rev.append(wordtoix[t])
+        captions.append(rev)
+        cap_lens.append(len(rev))
 
-    # Get caption lengths
-    captions_lens = []
-    for i in captions_new:
-        sent_caption = np.asarray(i).astype('int64')
-        if (sent_caption == 0).sum() > 0:
-            print('ERROR: do not need END (0) token', sent_caption)
-        captions_lens.append(len(sent_caption))
-    captions_lens = torch.from_numpy(np.array(captions_lens))
-    # sorted_cap_lens, sorted_cap_indices = torch.sort(captions_lens, 0, True)
+    max_len = np.max(cap_lens)
+
+    sorted_indices = np.argsort(cap_lens)[::-1]
+    cap_lens = np.asarray(cap_lens)
+    cap_lens = cap_lens[sorted_indices]
+    cap_array = np.zeros((len(captions), max_len), dtype='int64')
+    for i in range(len(captions)):
+        idx = sorted_indices[i]
+        cap = captions[idx]
+        c_len = len(cap)
+        cap_array[i, :c_len] = cap
 
     # Get number of hidden layers text encoder
-    hidden = text_encoder.init_hidden(len(captions_new))
+    hidden = text_encoder.init_hidden(len(cap_array))
 
     # Embed text
-    words_embs, sent_emb = text_encoder(Variable(torch.from_numpy(np.array(captions_new))), Variable(captions_lens), hidden)
+    words_embs, sent_emb = text_encoder(Variable(torch.from_numpy(np.array(cap_array))), Variable(torch.from_numpy(np.array(cap_lens))), hidden)
 
     # Generate images
     with torch.no_grad():
-        noise = torch.randn(len(captions_new), 100)
+        noise = torch.randn(len(cap_array), 100)
         noise = noise.to('cpu')
         netG.lstm.init_hidden(noise)
         fake_imgs = netG(noise, sent_emb)

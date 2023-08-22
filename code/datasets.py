@@ -107,7 +107,7 @@ class TextDataset(data.Dataset):
         if data_dir.find('birds') != -1:
             self.bbox = self.load_bbox()
         else:
-            self.bbox = None#self.load_bbox()
+            self.bbox = None #self.load_bbox()
         split_dir = os.path.join(data_dir, split)
 
         self.filenames, self.captions, self.ixtoword, \
